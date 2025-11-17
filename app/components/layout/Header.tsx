@@ -118,7 +118,7 @@ export default function Header() {
             ) : (
               <>
                 <Link
-                  href="/signin"
+                  href="/login"
                   className="text-white hover:text-yellow-400 transition font-medium"
                 >
                   Sign In
