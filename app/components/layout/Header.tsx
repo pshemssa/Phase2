@@ -3,12 +3,23 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Search, Edit, Menu, X } from "lucide-react";
+import { Search, Edit, Menu, X, LogOut, User, Settings } from "lucide-react";
+import { useSession, signOut } from "next-auth/react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 export default function Header() {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const { data: session, status } = useSession();
+
+  const isAuthenticated = status === "authenticated";
 
   return (
     <header className="border-b border-yellow-700/20 sticky top-0 bg-yellow-800 hover:bg-yellow-700 transition z-50 shadow-sm">
@@ -51,20 +62,67 @@ export default function Header() {
                   <Edit className="w-5 h-5 mr-1" />
                   <span>Write</span>
                 </Link>
-                <button className="relative">
-                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-yellow-400 to-yellow-600 flex items-center justify-center text-white text-sm font-semibold shadow-md">
-                    U
-                  </div>
-                </button>
+                
+                {/* User Dropdown */}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button className="relative focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:ring-offset-2 rounded-full">
+                      {session?.user?.image ? (
+                        <img
+                          src={session.user.image}
+                          alt={session.user.name || "User"}
+                          className="w-8 h-8 rounded-full object-cover"
+                        />
+                      ) : (
+                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-yellow-400 to-yellow-600 flex items-center justify-center text-white text-sm font-semibold shadow-md">
+                          {session?.user?.name?.charAt(0).toUpperCase() || "U"}
+                        </div>
+                      )}
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-56">
+                    <DropdownMenuLabel>
+                      <div className="flex flex-col space-y-1">
+                        <p className="text-sm font-medium leading-none">
+                          {session?.user?.name}
+                        </p>
+                        <p className="text-xs leading-none text-muted-foreground">
+                          {session?.user?.email}
+                        </p>
+                      </div>
+                    </DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem asChild>
+                      <Link href={`/@${(session?.user as any)?.username}`}>
+                        <User className="mr-2 h-4 w-4" />
+                        Profile
+                      </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem asChild>
+                      <Link href="/settings">
+                        <Settings className="mr-2 h-4 w-4" />
+                        Settings
+                      </Link>
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onClick={() => signOut({ callbackUrl: "/" })}
+                      className="text-red-600 focus:text-red-600"
+                    >
+                      <LogOut className="mr-2 h-4 w-4" />
+                      Sign out
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </>
             ) : (
               <>
-                <button
-                  onClick={() => setIsAuthenticated(true)}
+                <Link
+                  href="/signin"
                   className="text-white hover:text-yellow-400 transition font-medium"
                 >
                   Sign In
-                </button>
+                </Link>
                 <Link
                   href="/signup"
                   className="bg-white text-yellow-800 px-4 py-2 rounded-full text-sm font-bold hover:bg-yellow-50 shadow-sm transition"
@@ -90,17 +148,36 @@ export default function Header() {
       {mobileOpen && (
         <div className="md:hidden border-t border-white/10 bg-yellow-800">
           <nav className="px-4 py-4 space-y-3">
-            <Link
-              href="/write"
-              className="block text-white hover:text-yellow-400 transition font-medium"
-              onClick={() => setMobileOpen(false)}
-            >
-              Write
-            </Link>
-            {!isAuthenticated && (
+            {isAuthenticated ? (
               <>
                 <Link
-                  href="/signin"
+                  href="/write"
+                  className="block text-white hover:text-yellow-400 transition font-medium"
+                  onClick={() => setMobileOpen(false)}
+                >
+                  Write
+                </Link>
+                <Link
+                  href={`/@${(session?.user as any)?.username}`}
+                  className="block text-white hover:text-yellow-400 transition font-medium"
+                  onClick={() => setMobileOpen(false)}
+                >
+                  Profile
+                </Link>
+                <button
+                  onClick={() => {
+                    signOut({ callbackUrl: "/" });
+                    setMobileOpen(false);
+                  }}
+                  className="block w-full text-left text-white hover:text-yellow-400 transition font-medium"
+                >
+                  Sign Out
+                </button>
+              </>
+            ) : (
+              <>
+                <Link
+                  href="/login"
                   className="block text-white hover:text-yellow-400 transition font-medium"
                   onClick={() => setMobileOpen(false)}
                 >
