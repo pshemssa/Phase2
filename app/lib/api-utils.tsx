@@ -1,27 +1,30 @@
 import { NextResponse } from "next/server";
 import { ZodError } from "zod";
-import { Prisma } from "@prisma/client";
+import { PrismaClient } from "@prisma/client";
+import { PrismaClientKnownRequestError } from "@prisma/client/runtime/library";
 
 export function handleApiError(error: unknown) {
   console.error("API Error:", error);
 
   // Zod validation errors
   if (error instanceof ZodError) {
-    const firstError = error.errors[0];
+    const firstError = error.issues[0];
     return NextResponse.json(
       { 
         error: firstError?.message || "Validation error",
-        details: error.errors 
+        details: error.issues 
       },
       { status: 400 }
     );
   }
 
   // Prisma known errors
-  if (error instanceof Prisma.PrismaClientKnownRequestError) {
+  if (typeof error === "object" && error !== null && "code" in error) {
+    const prismaError = error as PrismaClientKnownRequestError;
+
     // Unique constraint violation
-    if (error.code === "P2002") {
-      const target = (error.meta?.target as string[]) || [];
+    if (prismaError.code === "P2002") {
+      const target = (prismaError.meta?.target as string[]) || [];
       return NextResponse.json(
         { error: `${target.join(", ")} already exists` },
         { status: 409 }
@@ -29,7 +32,7 @@ export function handleApiError(error: unknown) {
     }
 
     // Record not found
-    if (error.code === "P2025") {
+    if (prismaError.code === "P2025") {
       return NextResponse.json(
         { error: "Record not found" },
         { status: 404 }
@@ -37,20 +40,20 @@ export function handleApiError(error: unknown) {
     }
 
     // Foreign key constraint
-    if (error.code === "P2003") {
+    if (prismaError.code === "P2003") {
       return NextResponse.json(
         { error: "Related record not found" },
         { status: 400 }
       );
     }
-  }
-
   // Prisma validation errors
-  if (error instanceof Prisma.PrismaClientValidationError) {
+  if (typeof error === "object" && error !== null && (error as any)?.name === "PrismaClientValidationError") {
     return NextResponse.json(
       { error: "Invalid data provided" },
       { status: 400 }
     );
+  }
+    ;
   }
 
   // Generic error
