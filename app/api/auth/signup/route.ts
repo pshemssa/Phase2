@@ -19,19 +19,20 @@ export async function POST(req: NextRequest) {
     
     // Validate input
     const validatedData = signupSchema.parse(body);
+    const email = validatedData.email.trim().toLowerCase();
 
     // Check if user already exists
     const existingUser = await prisma.user.findFirst({
       where: {
         OR: [
-          { email: validatedData.email },
+          { email },
           { username: validatedData.username },
         ],
       },
     });
 
     if (existingUser) {
-      if (existingUser.email === validatedData.email) {
+      if (existingUser.email === email) {
         return NextResponse.json(
           { error: "Email already registered" },
           { status: 400 }
@@ -46,13 +47,13 @@ export async function POST(req: NextRequest) {
     }
 
     // Hash password
-    const hashedPassword = await bcrypt.hash(validatedData.password, 10);
+    const hashedPassword = await bcrypt.hash(validatedData.password.trim(), 10);
 
     // Create user
     const user = await prisma.user.create({
       data: {
         name: validatedData.name,
-        email: validatedData.email,
+        email,
         username: validatedData.username,
         password: hashedPassword,
       },
