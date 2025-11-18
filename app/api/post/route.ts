@@ -1,3 +1,4 @@
+// app/api/posts/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "../../lib/auth";
@@ -5,29 +6,28 @@ import { prisma } from "../../lib/prisma";
 import { z } from "zod";
 
 const postSchema = z.object({
-  title: z.string().min(1, "Title is required"),
-  content: z.string().min(1, "Content is required"),
+  title: z.string().min(1).max(200),
+  content: z.string().min(1),
   excerpt: z.string().optional(),
-  coverImage: z.string().url().optional().or(z.literal("")).nullable(),
-  tags: z.array(z.string()).optional(),
+  coverImage: z.string().url().optional(),
   published: z.boolean().default(false),
+  tags: z.array(z.string()).optional(),
 });
 
-// GET - Fetch all published posts
-export async function GET(req: NextRequest) {
+// GET /api/posts - Fetch all posts
+export async function GET(request: NextRequest) {
   try {
-    const { searchParams } = new URL(req.url);
+    const { searchParams } = new URL(request.url);
     const page = parseInt(searchParams.get("page") || "1");
     const limit = parseInt(searchParams.get("limit") || "10");
     const tag = searchParams.get("tag");
-    const author = searchParams.get("author");
+    const authorId = searchParams.get("authorId");
+    const published = searchParams.get("published") !== "false";
     const search = searchParams.get("search");
 
     const skip = (page - 1) * limit;
 
-    const where: any = {
-      published: true,
-    };
+    const where: any = { published };
 
     if (tag) {
       where.tags = {
@@ -37,23 +37,23 @@ export async function GET(req: NextRequest) {
       };
     }
 
-    if (author) {
-      where.author = {
-        username: author,
-      };
+    if (authorId) {
+      where.authorId = authorId;
     }
 
     if (search) {
       where.OR = [
-        { title: { contains: search, mode: "insensitive" as const } },
-        { excerpt: { contains: search, mode: "insensitive" as const } },
-        { content: { contains: search, mode: "insensitive" as const } },
+        { title: { contains: search, mode: "insensitive" } },
+        { content: { contains: search, mode: "insensitive" } },
       ];
     }
 
     const [posts, total] = await Promise.all([
       prisma.post.findMany({
         where,
+        skip,
+        take: limit,
+        orderBy: { createdAt: "desc" },
         include: {
           author: {
             select: {
@@ -63,12 +63,7 @@ export async function GET(req: NextRequest) {
               image: true,
             },
           },
-          tags: {
-            select: {
-              name: true,
-              slug: true,
-            },
-          },
+          tags: true,
           _count: {
             select: {
               likes: true,
@@ -76,26 +71,12 @@ export async function GET(req: NextRequest) {
             },
           },
         },
-        orderBy: {
-          publishedAt: "desc",
-        },
-        skip,
-        take: limit,
       }),
       prisma.post.count({ where }),
     ]);
 
-    // Transform tags to simple string array for frontend
-    const transformedPosts = posts.map((post:any) => ({
-      ...post,
-      tags: post.tags.map((tag:any) => tag.name),
-      createdAt: post.createdAt.toISOString(),
-      updatedAt: post.updatedAt.toISOString(),
-      publishedAt: post.publishedAt?.toISOString() || null,
-    }));
-
     return NextResponse.json({
-      data: transformedPosts,
+      posts,
       pagination: {
         page,
         limit,
@@ -104,7 +85,7 @@ export async function GET(req: NextRequest) {
       },
     });
   } catch (error) {
-    console.error("Get posts error:", error);
+    console.error("Error fetching posts:", error);
     return NextResponse.json(
       { error: "Failed to fetch posts" },
       { status: 500 }
@@ -112,8 +93,8 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// POST - Create a new post
-export async function POST(req: NextRequest) {
+// POST /api/posts - Create a new post
+export async function POST(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
 
@@ -121,87 +102,65 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const body = await req.json();
+    const body = await request.json();
     const validatedData = postSchema.parse(body);
 
     // Generate slug from title
-    const baseSlug = validatedData.title
+    const slug = validatedData.title
       .toLowerCase()
-      .replace(/[^\w\s-]/g, "")
-      .replace(/\s+/g, "-")
-      .replace(/-+/g, "-")
-      .trim();
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/(^-|-$)/g, "");
 
-    // Check if slug already exists and make it unique
-    let slug = baseSlug;
+    // Check if slug exists and make it unique
+    let uniqueSlug = slug;
     let counter = 1;
-    
-    while (true) {
-      const existing = await prisma.post.findUnique({
-        where: { slug },
-      });
-      
-      if (!existing) break;
-      
-      slug = `${baseSlug}-${counter}`;
+    while (await prisma.post.findUnique({ where: { slug: uniqueSlug } })) {
+      uniqueSlug = `${slug}-${counter}`;
       counter++;
     }
 
-    // Calculate read time (assuming 200 words per minute)
-    const wordCount = validatedData.content.split(/\s+/).length;
-    const readTime = Math.ceil(wordCount / 200);
+    // Handle tags
+    const tagConnections = validatedData.tags
+      ? {
+          connectOrCreate: validatedData.tags.map((tagName) => ({
+            where: {
+              slug: tagName.toLowerCase().replace(/\s+/g, "-"),
+            },
+            create: {
+              name: tagName,
+              slug: tagName.toLowerCase().replace(/\s+/g, "-"),
+            },
+          })),
+        }
+      : undefined;
 
-    // Get user ID
-    const user = await prisma.user.findUnique({
-      where: { email: session.user.email! },
-      select: { id: true },
-    });
+    // Resolve author ID: prefer session.user.id if present, otherwise look up by session.user.email
+    let authorId: string | undefined = (session.user as unknown as { id?: string }).id;
 
-    if (!user) {
-      return NextResponse.json({ error: "User not found" }, { status: 404 });
+    if (!authorId) {
+      const email = (session.user as { email?: string }).email;
+      if (!email) {
+        return NextResponse.json({ error: "User id not found in session" }, { status: 400 });
+      }
+
+      const user = await prisma.user.findUnique({ where: { email } });
+      if (!user) {
+        return NextResponse.json({ error: "User not found" }, { status: 400 });
+      }
+      authorId = user.id;
     }
-
-    // Create or connect tags
-    const tagData = validatedData.tags
-      ? await Promise.all(
-          validatedData.tags.map(async (tagName) => {
-            const tagSlug = tagName
-              .toLowerCase()
-              .replace(/[^\w\s-]/g, "")
-              .replace(/\s+/g, "-");
-
-            // Upsert tag
-            const tag = await prisma.tag.upsert({
-              where: { slug: tagSlug },
-              update: {},
-              create: {
-                name: tagName,
-                slug: tagSlug,
-              },
-            });
-            return tag;
-          })
-        )
-      : [];
 
     const post = await prisma.post.create({
       data: {
         title: validatedData.title,
-        slug,
+        slug: uniqueSlug,
         content: validatedData.content,
-        excerpt:
-          validatedData.excerpt ||
-          validatedData.content.substring(0, 200) + "...",
-        coverImage: validatedData.coverImage || null,
+        excerpt: validatedData.excerpt,
+        coverImage: validatedData.coverImage,
         published: validatedData.published,
         publishedAt: validatedData.published ? new Date() : null,
-        readTime,
-        author: {
-          connect: { id: user.id },
-        },
-        tags: {
-          connect: tagData.map((tag:any) => ({ id: tag.id })),
-        },
+        authorId,
+        tags: tagConnections,
       },
       include: {
         author: {
@@ -212,43 +171,20 @@ export async function POST(req: NextRequest) {
             image: true,
           },
         },
-        tags: {
-          select: {
-            name: true,
-            slug: true,
-          },
-        },
-        _count: {
-          select: {
-            likes: true,
-            comments: true,
-          },
-        },
+        tags: true,
       },
     });
 
-    return NextResponse.json(
-      {
-        message: "Post created successfully",
-        data: {
-          ...post,
-          tags: post.tags.map((tag:any) => tag.name),
-          createdAt: post.createdAt.toISOString(),
-          updatedAt: post.updatedAt.toISOString(),
-          publishedAt: post.publishedAt?.toISOString() || null,
-        },
-      },
-      { status: 201 }
-    );
+    return NextResponse.json(post, { status: 201 });
   } catch (error) {
     if (error instanceof z.ZodError) {
       return NextResponse.json(
-       { error: "Invalid data", details: (error as any).errors },
+        { error: "Invalid data", details: error },
         { status: 400 }
       );
     }
 
-    console.error("Create post error:", error);
+    console.error("Error creating post:", error);
     return NextResponse.json(
       { error: "Failed to create post" },
       { status: 500 }

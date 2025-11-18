@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
+import { getToken } from "next-auth/jwt";
 import { authOptions } from "../../../lib/auth";
 import { prisma } from "../../../lib/prisma";
 import { z } from "zod";
@@ -271,18 +272,22 @@ export async function DELETE(
 ) {
   try {
     const session = await getServerSession(authOptions);
-
-    if (!session?.user?.email) {
-      return createErrorResponse("Unauthorized", 401);
-    }
-
-    const user = await prisma.user.findUnique({
-      where: { email: session.user.email },
-      select: { id: true },
-    });
-
-    if (!user) {
-      return createErrorResponse("User not found", 404);
+    let userId: string | null = null;
+    if (session?.user?.email) {
+      const user = await prisma.user.findUnique({
+        where: { email: session.user.email },
+        select: { id: true },
+      });
+      if (!user) {
+        return createErrorResponse("User not found", 404);
+      }
+      userId = user.id;
+    } else {
+      const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
+      if (!token?.id) {
+        return createErrorResponse("Unauthorized", 401);
+      }
+      userId = token.id as string;
     }
 
     const post = await prisma.post.findFirst({
@@ -295,7 +300,7 @@ export async function DELETE(
       return createErrorResponse("Post not found", 404);
     }
 
-    if (post.authorId !== user.id) {
+    if (post.authorId !== userId) {
       return createErrorResponse("Forbidden", 403);
     }
 
