@@ -72,17 +72,17 @@ export default function PostCard({ post }: PostCardProps) {
 
             {/* Actions */}
             <div className="flex items-center space-x-4 text-gray-500">
-              <button className="flex items-center space-x-1 hover:text-yellow-600 transition">
+              <button className="flex items-center space-x-1 hover:text-yellow-600 transition" aria-label="Likes">
                 <Heart className="w-4 h-4" />
                 <span className="text-sm">{post._count.likes}</span>
               </button>
-              <button className="flex items-center space-x-1 hover:text-yellow-600 transition">
+              <button className="flex items-center space-x-1 hover:text-yellow-600 transition" aria-label="Comments">
                 <MessageCircle className="w-4 h-4" />
                 <span className="text-sm">{post._count.comments}</span>
               </button>
-              <button className="hover:text-yellow-700 transition">
+              <Link href={`/post/${post.slug}`} className="hover:text-yellow-700 transition" aria-label="Bookmark">
                 <Bookmark className="w-4 h-4" />
-              </button>
+              </Link>
             </div>
           </div>
         </div>
