@@ -6,96 +6,61 @@ import Footer from "./components/layout/Footer";
 import PostCard from "./components/post/PostCard";
 import { Button } from "../components/ui/button";
 import { Post } from "./types";
+import { prisma } from "./lib/prisma";
 
-// This would be fetched from your API
+// Fetch published posts from the database and map to UI-friendly shape
 async function getPosts(): Promise<Post[]> {
-  // Simulated data - replace with actual API call
-  return [
-    {
-      id: "1",
-      title: "Getting Started with Next.js 14 and Server Components",
-      excerpt:
-        "Learn how to build modern web applications with the latest Next.js features including server components, streaming, and more.",
-      slug: "getting-started-nextjs-14",
-      coverImage: "https://images.unsplash.com/photo-1633356122544-f134324a6cee?w=800&h=400&fit=crop",
-      published: true,
+  const posts = await prisma.post.findMany({
+    where: { published: true },
+    orderBy: { publishedAt: "desc" },
+    include: {
       author: {
-        id: "user1",
-        name: "Sarah Johnson",
-        username: "sarahj",
-        image: null,
+        select: { id: true, name: true, username: true, image: true },
       },
-      authorId: "user1",
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      publishedAt: new Date().toISOString(),
-      readTime: 5,
-      tags: ["Next.js", "React", "Web Development"],
-      _count: {
-        likes: 234,
-        comments: 18,
-      },
+      tags: { select: { name: true, slug: true } },
+      _count: { select: { likes: true, comments: true } },
     },
-    {
-      id: "2",
-      title: "Mastering TypeScript: Advanced Patterns and Best Practices",
-      excerpt:
-        "Deep dive into advanced TypeScript patterns that will make your code more maintainable and type-safe.",
-      slug: "mastering-typescript-patterns",
-      coverImage: "https://images.unsplash.com/photo-1516116216624-53e697fedbea?w=800&h=400&fit=crop",
-      published: true,
-      author: {
-        id: "user2",
-        name: "Michael Chen",
-        username: "michaelc",
-        image: null,
-      },
-      authorId: "user2",
-      createdAt: new Date(Date.now() - 86400000).toISOString(),
-      updatedAt: new Date(Date.now() - 86400000).toISOString(),
-      publishedAt: new Date(Date.now() - 86400000).toISOString(),
-      readTime: 8,
-      tags: ["TypeScript", "Programming", "Best Practices"],
-      _count: {
-        likes: 456,
-        comments: 32,
-      },
+  });
+
+  return posts.map((post: any) => ({
+    id: post.id,
+    title: post.title,
+    slug: post.slug,
+    content: undefined,
+    excerpt: post.excerpt || "",
+    coverImage: post.coverImage || null,
+    published: post.published,
+    createdAt: post.createdAt.toISOString(),
+    updatedAt: post.updatedAt.toISOString(),
+    publishedAt: post.publishedAt ? post.publishedAt.toISOString() : null,
+    readTime: post.readTime ?? 0,
+    authorId: post.authorId,
+    author: {
+      id: post.author.id,
+      name: post.author.name ?? "Anonymous",
+      username: post.author.username,
+      image: post.author.image ?? null,
     },
-    {
-      id: "3",
-      title: "Building Scalable APIs with Prisma and PostgreSQL",
-      excerpt:
-        "A comprehensive guide to designing and implementing production-ready database schemas with Prisma ORM.",
-      slug: "scalable-apis-prisma-postgresql",
-      coverImage: "https://images.unsplash.com/photo-1544383835-bda2bc66a55d?w=800&h=400&fit=crop",
-      published: true,
-      author: {
-        id: "user3",
-        name: "Emily Rodriguez",
-        username: "emilyr",
-        image: null,
-      },
-      authorId: "user3",
-      createdAt: new Date(Date.now() - 172800000).toISOString(),
-      updatedAt: new Date(Date.now() - 172800000).toISOString(),
-      publishedAt: new Date(Date.now() - 172800000).toISOString(),
-      readTime: 12,
-      tags: ["Prisma", "PostgreSQL", "Backend"],
-      _count: {
-        likes: 189,
-        comments: 24,
-      },
-    },
-  ];
+    tags: post.tags.map((t: any) => t.name),
+    _count: post._count,
+  }));
 }
 
 async function getTrendingTags(): Promise<string[]> {
-  return ["JavaScript", "React", "Next.js", "TypeScript", "Web Development", "AI", "Design"];
+  return [
+    "JavaScript",
+    "React",
+    "Next.js",
+    "TypeScript",
+    "Web Development",
+    "AI",
+    "Design",
+  ];
 }
 
 async function getStaffPicks() {
   const posts = await getPosts();
-  return posts.slice(0, 3).map(post => ({
+  return posts.slice(0, 3).map((post) => ({
     id: post.id,
     title: post.title,
     slug: post.slug,
@@ -110,7 +75,10 @@ function PostsLoading() {
   return (
     <div className="space-y-8">
       {[1, 2, 3].map((i) => (
-        <div key={i} className="bg-white rounded-lg p-6 shadow-sm border border-gray-100 animate-pulse">
+        <div
+          key={i}
+          className="bg-white rounded-lg p-6 shadow-sm border border-gray-100 animate-pulse"
+        >
           <div className="h-6 bg-gray-200 rounded w-3/4 mb-4"></div>
           <div className="h-4 bg-gray-200 rounded w-full mb-2"></div>
           <div className="h-4 bg-gray-200 rounded w-5/6"></div>
