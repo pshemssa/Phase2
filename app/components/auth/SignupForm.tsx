@@ -82,7 +82,7 @@ export default function SignUpForm() {
       
       // Redirect to sign in after 2 seconds
       setTimeout(() => {
-        router.push("/signin?registered=true");
+        router.push("/login?registered=true");
       }, 2000);
     } catch (err) {
       setError("Something went wrong. Please try again.");
