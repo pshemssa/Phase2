@@ -14,12 +14,13 @@ const commentSchema = z.object({
 // GET /api/posts/[id]/comments - Get comments for a post
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await context.params;
     const comments = await prisma.comment.findMany({
       where: {
-        postId: params.id,
+        postId: id,
         parentId: null, // Only get top-level comments
       },
       include: {
@@ -27,6 +28,7 @@ export async function GET(
           select: {
             id: true,
             name: true,
+            username: true,
             image: true,
           },
         },
@@ -36,9 +38,13 @@ export async function GET(
               select: {
                 id: true,
                 name: true,
+                username: true,
                 image: true,
               },
             },
+          },
+          orderBy: {
+            createdAt: "asc",
           },
           orderBy: {
             createdAt: "asc",
@@ -63,9 +69,10 @@ export async function GET(
 // POST /api/posts/[id]/comments - Create a comment
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await context.params;
     const session = await getServerSession(authOptions);
     let userId: string | null = null;
     if (session?.user?.email) {
@@ -90,7 +97,7 @@ export async function POST(
 
     // Check if post exists
     const post = await prisma.post.findUnique({
-      where: { id: params.id },
+      where: { id },
     });
 
     if (!post) {
@@ -101,7 +108,7 @@ export async function POST(
     const comment = await prisma.comment.create({
       data: {
         content: validatedData.content,
-        postId: params.id,
+        postId: id,
         authorId: userId!,
         parentId: validatedData.parentId || null,
       },
@@ -110,6 +117,7 @@ export async function POST(
           select: {
             id: true,
             name: true,
+            username: true,
             image: true,
           },
         },

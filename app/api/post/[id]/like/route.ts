@@ -112,12 +112,79 @@ import { prisma } from "../../../../lib/prisma";
 // GET — Check if user liked + return current like count
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
-  const session = await getServerSession(authOptions);
-
   try {
+    const { id } = await context.params;
+    const session = await getServerSession(authOptions);
     let userId: string | null = null;
+    
+    // Try to get user ID if authenticated
+    if (session?.user?.email) {
+      const user = await prisma.user.findUnique({ 
+        where: { email: session.user.email }, 
+        select: { id: true } 
+      });
+      userId = user?.id || null;
+    } else {
+      const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET });
+      userId = (token?.id as string) || null;
+    }
+
+    // Find post first to get the actual post ID
+    const post = await prisma.post.findFirst({
+      where: {
+        OR: [
+          { id },
+          { slug: id }
+        ]
+      },
+      select: { id: true }
+    });
+
+    if (!post) {
+      return NextResponse.json({ error: "Post not found", liked: false, likeCount: 0 }, { status: 404 });
+    }
+
+    // Get like count (always available)
+    const likeCount = await prisma.like.count({
+      where: { postId: post.id },
+    });
+
+    // Check if user liked (only if authenticated)
+    let liked = false;
+    if (userId) {
+      const existingLike = await prisma.like.findUnique({
+        where: { 
+          postId_userId: { 
+            postId: post.id, 
+            userId: userId 
+          } 
+        },
+      });
+      liked = !!existingLike;
+    }
+
+    return NextResponse.json({ liked, likeCount });
+  } catch (error: any) {
+    console.error("Error checking like status:", error);
+    return NextResponse.json(
+      { error: error.message || "Server error", liked: false, likeCount: 0 },
+      { status: 500 }
+    );
+  }
+}
+
+// POST — Like the post
+export async function POST(
+  request: NextRequest,
+  context: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await context.params;
+    const session = await getServerSession(authOptions);
+    let userId: string | null = null;
+    
     if (session?.user?.email) {
       const user = await prisma.user.findUnique({ where: { email: session.user.email }, select: { id: true } });
       if (!user) return NextResponse.json({ error: "User not found" }, { status: 404 });
@@ -128,75 +195,107 @@ export async function GET(
       userId = token.id as string;
     }
 
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    // Find post by id (params.id could be id or slug)
+    const post = await prisma.post.findFirst({
+      where: {
+        OR: [
+          { id },
+          { slug: id }
+        ]
+      }
+    });
+    if (!post) return NextResponse.json({ error: "Post not found" }, { status: 404 });
+
     const existingLike = await prisma.like.findUnique({
-      where: { postId_userId: { postId: params.id, userId: userId! } },
+      where: { postId_userId: { postId: post.id, userId: userId } },
     });
 
-    const likeCount = await prisma.like.count({
-      where: { postId: params.id },
+    if (existingLike) {
+      return NextResponse.json({ error: "Already liked" }, { status: 400 });
+    }
+
+    // Create the like in the database
+    await prisma.like.create({ 
+      data: { 
+        postId: post.id, 
+        userId: userId 
+      } 
     });
 
-    return NextResponse.json({ liked: !!existingLike, likeCount });
-  } catch (error) {
-    return NextResponse.json({ error: "Server error" }, { status: 500 });
+    // Get updated like count
+    const likeCount = await prisma.like.count({ where: { postId: post.id } });
+
+    return NextResponse.json({ liked: true, likeCount });
+  } catch (error: any) {
+    console.error("Error liking post:", error);
+    return NextResponse.json(
+      { error: error.message || "Failed to like post" },
+      { status: 500 }
+    );
   }
-}
-
-// POST — Like the post
-export async function POST(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
-  const session = await getServerSession(authOptions);
-  let userId: string | null = null;
-  if (session?.user?.email) {
-    const user = await prisma.user.findUnique({ where: { email: session.user.email }, select: { id: true } });
-    if (!user) return NextResponse.json({ error: "User not found" }, { status: 404 });
-    userId = user.id;
-  } else {
-    const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET });
-    if (!token?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    userId = token.id as string;
-  }
-
-  const post = await prisma.post.findUnique({ where: { id: params.id } });
-  if (!post) return NextResponse.json({ error: "Post not found" }, { status: 404 });
-
-  const existingLike = await prisma.like.findUnique({
-    where: { postId_userId: { postId: params.id, userId: userId! } },
-  });
-
-  if (existingLike) {
-    return NextResponse.json({ error: "Already liked" }, { status: 400 });
-  }
-
-  await prisma.like.create({ data: { postId: params.id, userId: userId! } });
-
-  const likeCount = await prisma.like.count({ where: { postId: params.id } });
-
-  return NextResponse.json({ liked: true, likeCount });
 }
 
 // DELETE — Unlike
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
-  const session = await getServerSession(authOptions);
-  let userId: string | null = null;
-  if (session?.user?.email) {
-    const user = await prisma.user.findUnique({ where: { email: session.user.email }, select: { id: true } });
-    if (!user) return NextResponse.json({ error: "User not found" }, { status: 404 });
-    userId = user.id;
-  } else {
-    const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET });
-    if (!token?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    userId = token.id as string;
+  try {
+    const { id } = await context.params;
+    const session = await getServerSession(authOptions);
+    let userId: string | null = null;
+    
+    if (session?.user?.email) {
+      const user = await prisma.user.findUnique({ where: { email: session.user.email }, select: { id: true } });
+      if (!user) return NextResponse.json({ error: "User not found" }, { status: 404 });
+      userId = user.id;
+    } else {
+      const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET });
+      if (!token?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      userId = token.id as string;
+    }
+
+    if (!userId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    // Delete the like from the database
+  // Find post first to get the actual post ID
+  const post = await prisma.post.findFirst({
+    where: {
+      OR: [
+        { id },
+        { slug: id }
+      ]
+    }
+  });
+
+  if (!post) {
+    return NextResponse.json({ error: "Post not found" }, { status: 404 });
   }
 
-  await prisma.like.delete({ where: { postId_userId: { postId: params.id, userId: userId! } } });
+  await prisma.like.delete({ 
+    where: { 
+      postId_userId: { 
+        postId: post.id, 
+        userId: userId 
+      } 
+    } 
+  });
 
-  const likeCount = await prisma.like.count({ where: { postId: params.id } });
+  // Get updated like count
+  const likeCount = await prisma.like.count({ where: { postId: post.id } });
 
-  return NextResponse.json({ liked: false, likeCount });
+    return NextResponse.json({ liked: false, likeCount });
+  } catch (error: any) {
+    console.error("Error unliking post:", error);
+    return NextResponse.json(
+      { error: error.message || "Failed to unlike post" },
+      { status: 500 }
+    );
+  }
 }

@@ -18,12 +18,13 @@ const updatePostSchema = z.object({
 // GET - Fetch single post by slug or ID
 export async function GET(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await context.params;
     const post = await prisma.post.findFirst({
       where: {
-        OR: [{ slug: params.id }, { id: params.id }],
+        OR: [{ slug: id }, { id }],
       },
       include: {
         author: {
@@ -85,9 +86,10 @@ export async function GET(
 // PUT - Update post
 export async function PUT(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await context.params;
     const session = await getServerSession(authOptions);
 
     if (!session?.user?.email) {
@@ -105,7 +107,7 @@ export async function PUT(
 
     const post = await prisma.post.findFirst({
       where: {
-        OR: [{ id: params.id }, { slug: params.id }],
+        OR: [{ id }, { slug: id }],
       },
     });
 
@@ -268,9 +270,10 @@ export async function PUT(
 // DELETE - Delete post
 export async function DELETE(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
+    const { id } = await context.params;
     const session = await getServerSession(authOptions);
     let userId: string | null = null;
     if (session?.user?.email) {
@@ -292,7 +295,7 @@ export async function DELETE(
 
     const post = await prisma.post.findFirst({
       where: {
-        OR: [{ id: params.id }, { slug: params.id }],
+        OR: [{ id }, { slug: id }],
       },
     });
 
